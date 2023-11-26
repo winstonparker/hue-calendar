@@ -1,0 +1,28 @@
+{
+  "name": "hue-calendar-controller",
+  "version": "1.0.0",
+  "description": "Hue Light Controller",
+  "main": "app.js",
+  "dependencies": {
+    "@google-cloud/local-auth": "^2.1.0",
+    "axios": "^1.6.2",
+    "dotenv": "^16.0.3",
+    "googleapis": "^105.0.0",
+    "luxon": "^3.4.4",
+    "node-fetch": "^3.3.2",
+    "node-ical": "^0.17.0"
+  },
+  "scripts": {
+    "start": "node src/app.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git"
+  },
+  "keywords": [
+    "node.js"
+  ],
+  "author": "Winston Parker",
+  "license": "MIT",
+  "type": "module"
+}
