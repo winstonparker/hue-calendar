@@ -47,7 +47,6 @@ async function saveCredentials(client) {
 
 /**
  * Load or request or authorization to call APIs.
- *
  */
 async function getAuthClient() {
   let client = await loadSavedCredentialsIfExist();

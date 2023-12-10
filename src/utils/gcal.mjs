@@ -11,17 +11,17 @@ const calendar = google.calendar( {
     auth: await auth.getAuthClient()
 });
 
-async function getUpcomingEvents(name, range) {
+async function getUpcomingEvents(name, range, timeZone) {
   const calId = await getCalIdByName(name);
   if(!calId){
-    console.log("Could not find cal with given name.");
+    console.error("Could not find cal with given name.");
     return;
   }
   const validEvents = await getCalendarEvents(calId);
   const upcoming = [];
 
   for(const event of validEvents){
-    const secondsUntil = compareEventTimeWithCurrent(event, "America/Chicago");
+    const secondsUntil = compareEventTimeWithCurrent(event, timeZone);
     if(secondsUntil <= range){
       upcoming.push({id: event.id, secondsUntil, status: event.summary})
     }
@@ -29,25 +29,27 @@ async function getUpcomingEvents(name, range) {
   return upcoming;
 }
 
-async function sync(name, url) {
+async function sync(name, url, timeRange, timeZone) {
 
-  //Fetch Cals to find the one to reset and sync with url
+  // Fetch Cals to find the one to reset and sync with iCal url
   let syncCalendarId = await getCalIdByName(name);
 
+  // If first time syncing, create a secondary calendar for upcoming iCal events
   if(!syncCalendarId){
-    console.log("No Calendars found with provided name. Creating one with name:", name);
-    syncCalendarId = await createNewCalendar(name);
+    // console.log("No Calendars found with provided name. Creating new one with name:", name);
+    syncCalendarId = await createNewCalendar(name, timeZone);
     if(!syncCalendarId) return false;
   }
 
-  console.log("Syncing Cal Id:", syncCalendarId);
+  // console.log("Syncing Cal Id:", syncCalendarId);
 
-  // Force sync by clearing existing cal, creating a new one, and adding iCal data
+  // Force sync by clearing existing calendar and adding upcoming events from iCal
   if(syncCalendarId){
     const successfullyCleared = await clearCalendar(syncCalendarId);
+    
+    // Add imported iCal events to empty cal
     if (successfullyCleared) {
-      // Add imported iCal events to empty cal
-      const successfullyAdded = await addICalToGoogleCalendar(url, syncCalendarId);
+      const successfullyAdded = await addICalToGoogleCalendar(url, syncCalendarId, timeRange, timeZone);
       if(successfullyAdded) return true;
     }
     return false;
@@ -69,20 +71,15 @@ async function getCalIdByName(name){
    return false;
 }
 
+// Get list of all a user's calendars
 async function listCalendars() {
   try {
-      
-       // Acquire an auth client, and bind it to all future calls
-      // const authClient = await auth.getAuthClient();
-      // google.options({auth: authClient});
-
-      // Fetch cals and return if present
       const res = await calendar.calendarList.list();
       if(res.data && res.data.items.length ){
         return res.data.items;
       }
       
-      console.log("No calendars found for user.")
+      // console.log("No calendars found for user.")
       return [];
   } catch (error) {
       console.error('Error fetching calendar list:', error);
@@ -90,6 +87,7 @@ async function listCalendars() {
   }
 }
 
+// Get future events (excludes "All Day" events)
 async function getCalendarEvents(id) {
   try {
       
@@ -121,22 +119,18 @@ async function getCalendarEvents(id) {
   }
 }
 
-async function createNewCalendar(name) {
+// Creates a new secondary calendar
+async function createNewCalendar(name, timeZone) {
   try {
-
-      // Acquire an auth client, and bind it to all future calls
-      // const authClient = await auth.getAuthClient();
-      // google.options({auth: authClient});
-
       const res = await calendar.calendars.insert({
           requestBody: {
               summary: name, 
-              timeZone: 'America/Chicago'
+              timeZone
           }
       });
 
       const calendarId = res.data.id;
-      console.log(`New calendar created: ${name} (ID: ${calendarId})`);
+      // console.log(`New calendar created: ${name} (ID: ${calendarId})`);
       return calendarId;
   } catch (error) {
       console.error('Error occurred while creating new calendar:', error);
@@ -144,21 +138,23 @@ async function createNewCalendar(name) {
   }
 }
 
+// clears all events from a secondary calendar (USE WITH CAUTION)
 async function clearCalendar(calendarId) {
   try {
       // List all events in the calendar
       const events = await getCalendarEvents(calendarId);
 
       if (events.length) {
-        console.log("Deleting", events.length, `event(s) from calendar: ${calendarId}`);
+        // console.log("Deleting", events.length, `event(s) from calendar: ${calendarId}`);
 
         // Delete each event
         for (const event of events) {
           await deleteCalEvent(calendarId, event.id);
         }
-        console.log('All events deleted successfully.');
+
+        // console.log('All events deleted successfully.');
       } else {
-        console.log('No events found in the calendar.');
+        // console.log('No events found in the calendar.');
       }
 
       return true;
@@ -168,7 +164,7 @@ async function clearCalendar(calendarId) {
   }
 }
 
-
+// deletes an event from a secondary calendar (USE WITH CAUTION)
 async function deleteCalEvent(calendarId, eventId){
   try {
       await calendar.events.delete({
@@ -183,7 +179,9 @@ async function deleteCalEvent(calendarId, eventId){
 
 }
 
-async function addICalToGoogleCalendar(icalUrl, calendarId) {
+// Fetches data from an iCal URL. 
+// Adds events occuring in the timeRange (excludes "All Day" events) 
+async function addICalToGoogleCalendar(icalUrl, calendarId, timeRange, timeZone) {
   try {
       // Fetch the iCal data
       const response = await fetch(icalUrl);
@@ -199,13 +197,13 @@ async function addICalToGoogleCalendar(icalUrl, calendarId) {
           
           const requestBody = {
             summary: event.summary,
-            start: { dateTime: event.start.toISOString(), timeZone:  "America/Chicago" },
+            start: { dateTime: event.start.toISOString(), timeZone },
             end: { dateTime: event.end.toISOString() },
             
           };
    
-          const timeDif = compareEventTimeWithCurrent(requestBody, "America/Chicago");
-          if(timeDif > 108000 || timeDif < 0) continue;
+          const timeDif = compareEventTimeWithCurrent(requestBody, timeZone);
+          if(timeDif > timeRange || timeDif < 0) continue;
 
           // Convert the event to Google Calendar format and add it
           await calendar.events.insert({
@@ -214,7 +212,7 @@ async function addICalToGoogleCalendar(icalUrl, calendarId) {
           }); 
           eventsAdded += 1;
       }
-      console.log("Added", eventsAdded, "event(s) to cal.");
+      // console.log("Added", eventsAdded, "event(s) to cal.");
       return true;
   } catch (error) {
       console.error('Error occurred:', error);
