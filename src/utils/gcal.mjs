@@ -5,6 +5,10 @@ import auth from './auth.mjs';
 import { DateTime } from 'luxon';
 import fetch from 'node-fetch';
 import ical from 'node-ical';
+import moment from 'moment-timezone';
+import rrule from 'rrule';
+const { RRule } = rrule;
+
 
 const calendar = google.calendar( {
     version: 'v3',
@@ -173,7 +177,7 @@ async function deleteCalEvent(calendarId, eventId){
       });
       return true;
   } catch (error) {
-      console.error('Error occurred while deleting calendar event:', error);
+      // console.error('Error occurred while deleting calendar event:', error);
       return false;
   }
 
@@ -189,22 +193,61 @@ async function addICalToGoogleCalendar(icalUrl, calendarId, timeRange, timeZone)
 
       // Parse the iCal data
       const icalParse = ical.parseICS(icalData);
-      const events = Object.values(icalParse);
+      // const icalExpander = new IcalExpander({ ics: icalData, maxIterations: 10 });
+
+      let events = Object.values(icalParse);
+      const allEvents = [];
+
+      events.forEach((event) => {   
+            if (event.type === 'VEVENT') {
+              if (event.rrule) {
+                  // Process recurring event
+                  const rule = RRule.fromString(event.rrule.toString());
+                  const occurrences = rule.between(moment().toDate(), moment().add(timeRange, 'seconds').toDate());
+                  let startTime = moment(event.start);
+                  let endTime = moment(event.end);
+
+                  occurrences.forEach(occurrence => {
+
+                    // TODO - CONVERT the occurence time to a UTC time for google
+                    // right now it is in the timezone of whoever created it and google thinks I am giving it a UTC time (so the time comes way earlier than it should)
+
+
+                    const duration = endTime.diff(startTime, "minutes");
+                    const end = new Date(occurrence.getTime());
+                    end.setMinutes(end.getMinutes() + duration);
+                    
+                    const newEvent = {
+                        ...event,
+                        start: occurrence,
+                        end
+                    };
+                    // console.log("________________________________________________");
+                    allEvents.push(newEvent);
+                    return;
+                  });
+              } 
+          }
+          allEvents.push(event);
+          
+      });
+
       let eventsAdded = 0;
       // Loop through the events and add them to Google Calendar
-      for (const event of events) {
+      for (const event of allEvents) {
+
           if(!event.start || event.datetype !== "date-time") continue;
           
           const requestBody = {
             summary: event.summary,
             start: { dateTime: event.start.toISOString(), timeZone },
-            end: { dateTime: event.end.toISOString() },
-            
+            end: { dateTime: event.end.toISOString() , timeZone}
           };
-   
+
           const timeDif = compareEventTimeWithCurrent(requestBody, timeZone);
           if(timeDif > timeRange || timeDif < 0) continue;
 
+          console.log(requestBody);
           // Convert the event to Google Calendar format and add it
           await calendar.events.insert({
               calendarId,
@@ -212,7 +255,7 @@ async function addICalToGoogleCalendar(icalUrl, calendarId, timeRange, timeZone)
           }); 
           eventsAdded += 1;
       }
-      // console.log("Added", eventsAdded, "event(s) to cal.");
+      console.log("Added", eventsAdded, "event(s) to cal.");
       return true;
   } catch (error) {
       console.error('Error occurred:', error);

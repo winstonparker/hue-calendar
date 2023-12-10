@@ -20,9 +20,9 @@ import chalk from 'chalk';
 import chalkAnimation from 'chalk-animation';
 
 const checkRainbow = chalkAnimation.rainbow("");
-const syncAnimation = chalkAnimation.glitch("");
+const syncAnimation = chalkAnimation.pulse("");
 
-syncCal()
+syncCal();
 checkEvents();
 
 // Check events every minute (M-F, 8am-5pm)
@@ -77,6 +77,4 @@ async function updateLights(events){
       break;
     }
   }
-
-  hue.changeLights(30000)
 }
