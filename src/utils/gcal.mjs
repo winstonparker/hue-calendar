@@ -248,8 +248,6 @@ function parseEvents(events, timeZone, timeRange) {
         let endTime = moment(event.end);
 
         occurrences.forEach(occurrence => {
-          // TODO - CONVERT the occurence time to a UTC time for google
-          // right now it is in the timezone of whoever created it and google thinks I am giving it a UTC time (so the time comes way earlier than it should)
           const duration = endTime.diff(startTime, "minutes");
           const end = new Date(occurrence.getTime());
 
