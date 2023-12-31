@@ -196,64 +196,29 @@ async function addICalToGoogleCalendar(icalUrl, calendarId, timeRange, timeZone)
       // const icalExpander = new IcalExpander({ ics: icalData, maxIterations: 10 });
 
       let events = Object.values(icalParse);
-      const allEvents = [];
-
-      events.forEach((event) => {   
-            if (event.type === 'VEVENT') {
-              if (event.rrule) {
-                  // Process recurring event
-                  const rule = RRule.fromString(event.rrule.toString());
-                  const occurrences = rule.between(moment().toDate(), moment().add(timeRange, 'seconds').toDate());
-                  let startTime = moment(event.start);
-                  let endTime = moment(event.end);
-
-                  occurrences.forEach(occurrence => {
-
-                    // TODO - CONVERT the occurence time to a UTC time for google
-                    // right now it is in the timezone of whoever created it and google thinks I am giving it a UTC time (so the time comes way earlier than it should)
-
-
-                    const duration = endTime.diff(startTime, "minutes");
-                    const end = new Date(occurrence.getTime());
-                    end.setMinutes(end.getMinutes() + duration);
-                    
-                    const newEvent = {
-                        ...event,
-                        start: occurrence,
-                        end
-                    };
-                    // console.log("________________________________________________");
-                    allEvents.push(newEvent);
-                    return;
-                  });
-              } 
-          }
-          allEvents.push(event);
-          
-      });
+      const allEvents = parseEvents(events, timeZone, timeRange);
 
       let eventsAdded = 0;
       // Loop through the events and add them to Google Calendar
       for (const event of allEvents) {
+        if(!event.start || event.datetype !== "date-time") continue;
+        
+        const requestBody = {
+          summary: event.summary,
+          start: { dateTime: event.start.toISOString(), timeZone },
+          end: { dateTime: event.end.toISOString() , timeZone}
+        };
 
-          if(!event.start || event.datetype !== "date-time") continue;
-          
-          const requestBody = {
-            summary: event.summary,
-            start: { dateTime: event.start.toISOString(), timeZone },
-            end: { dateTime: event.end.toISOString() , timeZone}
-          };
+        const timeDif = compareEventTimeWithCurrent(requestBody, timeZone);
+        if(timeDif > timeRange || timeDif < 0) continue;
 
-          const timeDif = compareEventTimeWithCurrent(requestBody, timeZone);
-          if(timeDif > timeRange || timeDif < 0) continue;
-
-          console.log(requestBody);
-          // Convert the event to Google Calendar format and add it
-          await calendar.events.insert({
-              calendarId,
-              requestBody
-          }); 
-          eventsAdded += 1;
+        console.log(requestBody);
+        // Convert the event to Google Calendar format and add it
+        await calendar.events.insert({
+            calendarId,
+            requestBody
+        }); 
+        eventsAdded += 1;
       }
       console.log("Added", eventsAdded, "event(s) to cal.");
       return true;
@@ -261,6 +226,51 @@ async function addICalToGoogleCalendar(icalUrl, calendarId, timeRange, timeZone)
       console.error('Error occurred:', error);
       return false;
   }
+}
+
+function parseEvents(events, timeZone, timeRange) {
+  const allEvents = [];
+
+  events.forEach((event) => {
+    if (event.type === 'VEVENT') {
+      if (event.rrule) {
+        
+        // Fixed issue with Rrule where Timezone will not be UTC
+        if(event.rrule.origOptions){
+          event.rrule.origOptions.tzid = timeZone;
+        }
+
+        // Process recurring event
+        const rule = RRule.fromString(event.rrule.toString());
+        const occurrences = rule.between(moment().toDate(), moment().add(timeRange, 'seconds').toDate());
+        
+        let startTime = moment(event.start);
+        let endTime = moment(event.end);
+
+        occurrences.forEach(occurrence => {
+          // TODO - CONVERT the occurence time to a UTC time for google
+          // right now it is in the timezone of whoever created it and google thinks I am giving it a UTC time (so the time comes way earlier than it should)
+          const duration = endTime.diff(startTime, "minutes");
+          const end = new Date(occurrence.getTime());
+
+          end.setMinutes(end.getMinutes() + duration);
+
+          const newEvent = {
+            ...event,
+            start: occurrence,
+            end
+          };
+
+          allEvents.push(newEvent);
+          return;
+        });
+      }
+    }
+
+    allEvents.push(event);
+  });
+
+  return allEvents;
 }
 
 // Function to compare event time with current time in a specific timezone
